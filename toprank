@@ -1,0 +1,100 @@
+#!/srvr/cs3311psql/lib/php525/bin/php
+<?php
+
+
+define("LIB_DIR","/import/adams/1/cs3311/public_html/19s1/assignments/a2");
+require_once(LIB_DIR."/db.php");
+
+define("DB_CONNECTION","dbname=a2");
+
+
+if ($argc <4) exit("Usage: ./toprank <K> <StartYear> <EndYear>\n");
+if ($argc >=6) exit("Usage: ./toprank <Genre> <K> <StartYear> <EndYear>\n");
+
+
+if ($argc == 4) {
+    $k      =   $argv[1];
+    $start  =   $argv[2];
+    $end    =   $argv[3];
+    $type   =   1;          // type 1 for 3 args 
+} else {
+    $str=$argv[1];
+    $k=$argv[2];
+    $start=$argv[3];
+    $end=$argv[4];
+    $type=2;            // type 2 for 4 args 
+    
+    $tmp=explode("&", $str);
+    sort($tmp);
+}
+
+if($k < 1 || $k >1000)  exit("Usage: ./toprank <K> <StartYear> <EndYear>\n");
+if($start <= 1900 || $start >= 2020 || $end <= 1900 || $end >= 2020 || $start > $end){
+    exit("Usage: ./toprank <K> <StartYear> <EndYear>\n");
+}
+$db = dbConnect("dbname=a2");
+
+// 3 arg query
+$qry = <<<_SQL_
+    select  m.title, 
+            m.year, 
+            m.content_rating,
+            m.lang,
+            r.imdb_score,
+            r.num_voted_users
+    from    Movie m, 
+            Rating r
+    where  m.id = r.movie_id
+    and    m.year >= %d
+    and    m.year <= %d
+    and    m.year is not null
+    order by  r.imdb_score DESC, r.num_voted_users DESC
+    limit %d
+_SQL_;
+
+
+
+if($type == 1) {
+    $res = dbQuery($db, mkSQL($qry, $start, $end, $k));
+    $c = 0;                     // Count the tuples
+    while ($i = dbNext($res)) {
+        printf("%s. %s (%s, %s, %s) [%s, %s]\n", 
+        (++$c), $i["title"], $i["year"], $i["content_rating"], $i["lang"], 
+        $i["imdb_score"], $i["num_voted_users"]);
+    }
+} else {
+    // 4 arg query
+    $qry1 = "select  m.title, m.year, m.content_rating, m.lang, r.imdb_score, r.num_voted_users, count(m.title) from Movie m, Genre g, Rating r where g.genre IN (";
+    
+    
+    for($n=0; $n<count($tmp); $n++) {
+        if($n==0) {
+            $qry1=$qry1."'".$tmp[$n]."'";
+        } else {
+            $qry1=$qry1.", '".$tmp[$n]."'";
+        }
+    }
+    
+    $qry1=$qry1.") and m.id = g.movie_id 
+    and m.id=r.movie_id 
+    and m.year >=%d 
+    and m.year <= %d 
+    and m.year is not null 
+    
+    group by m.title, m.year, m.content_rating, m.lang,r.imdb_score, r.num_voted_users
+    order by  r.imdb_score DESC, r.num_voted_users DESC
+    ";
+    
+    $res = dbQuery($db, mkSQL($qry1, $start, $end));
+    $c = 1; // to number as well as keep track of the limit
+    while ($i = dbNext($res)) {
+        if($i["count"]>=count($tmp) && $c<=$k)
+            printf("%s. %s (%s, %s, %s) [%s, %s]\n", 
+            ($c++), $i["title"], $i["year"], $i["content_rating"], $i["lang"], 
+            $i["imdb_score"], $i["num_voted_users"]);
+    }
+}
+
+
+
+?>

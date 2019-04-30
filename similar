@@ -1,0 +1,104 @@
+#!/srvr/cs3311psql/lib/php525/bin/php
+<?php
+
+
+define("LIB_DIR","/import/adams/1/cs3311/public_html/19s1/assignments/a2");
+require_once(LIB_DIR."/db.php");
+
+define("DB_CONNECTION","dbname=a2");
+
+
+if ($argc!=3) exit("Usage: ./similar <Title> <N>\n");
+$title = $argv[1];
+$n = $argv[2];
+
+$db = dbConnect("dbname=a2");
+// This part will return $mname which is the single film that matches with the input
+$mtitle="select m.title, m.id from Movie m where m.title ~* %s limit 1";
+$row = dbOneTuple($db, mkSQL($mtitle, $title));
+$mname = $row[0];   // Title
+$mid = $row[1];
+
+$view = "
+CREATE OR REPLACE VIEW Gen(title, id, gen_num) AS
+    SELECT m.title, m.id, count(g.genre) from Movie m, Genre g where g.movie_id = m.id and m.id != ".$mid." and g.genre IN (";
+$qgenre = "select genre from Genre where movie_id = %d";
+$tmp = dbQuery($db, mkSQL($qgenre, $mid));
+
+$genre_count = count($tmp);
+
+$c = 0;
+while($i = dbNext($tmp)) {
+    if($c == 0) {
+        $view = $view."'".$i[0]."'";
+        $c++;
+    } else {
+        $view = $view.", '".$i[0]."'";
+    }
+}
+$view=$view.")group by m.title, m.id order by count(g.genre) desc";
+
+$res = dbQuery($db, mkSQL($view));
+
+$view1 = "
+CREATE OR REPLACE VIEW Key (title, id, key_num) AS
+    SELECT m.title, m.id, count(k.keyword)
+    from Movie m, Keyword k
+    where (m.id=k.movie_id)
+    and m.id != ".$mid." and k.keyword IN (";
+$qkey = "select keyword from keyword where movie_id = %d";
+$tmp = dbQuery($db, mkSQL($qkey, $mid));
+
+$c = 0;
+while($i = dbNext($tmp)) {
+    if($c == 0) {
+        $view1 = $view1."'".$i[0]."'";
+        $c++;
+    } else {
+        $view1 = $view1.", '".$i[0]."'";
+    }
+}
+
+
+$view1=$view1.") group by m.title, m.id order by count(k.keyword)";
+
+$res1 = dbQuery($db, mkSQL($view1));
+
+
+// The use of coalesce here is to add 0 to any movie that has 0 count of keyword
+// left outer join is that to allow the k.key_num field to be null at some record
+// that does not match anything
+$view2 = "
+create or replace view similar_movies(title, year, gen_num, key_num, score, vote) as
+    select m.title, m.year, g.gen_num, coalesce(k.key_num, 0), r.imdb_score, r.num_voted_users
+    from
+    Movie m inner join Gen g on m.id = g.id
+    left join Key k on m.id = k.id
+    inner join Rating r on m.id = r.movie_id";
+
+dbQuery($db, $view2);
+
+$rqry = "
+select * from similar_movies s 
+order by 
+    s.gen_num desc, 
+    s.key_num desc, 
+    s.score desc, 
+    s.vote desc";
+$res2 = dbQuery($db, $rqry);
+$c=0;
+while($i = dbNext($res2)) {
+    ++$c;
+    if($i[1]!="") {
+        printf("%d. %s (%s) [%s, %s, %s, %s]\n", 
+            $c, $i[0], $i[1], $i[2], $i[3], $i[4], $i[5]);
+    } else {
+        printf("%d. %s [%s, %s, %s, %s]\n", $c, $i[0], $i[2], $i[3], $i[4], $i[5]);
+    }
+    
+    if($c==$n) break;
+}
+
+
+
+?>

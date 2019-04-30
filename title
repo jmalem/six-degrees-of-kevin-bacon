@@ -1,0 +1,79 @@
+#!/srvr/cs3311psql/lib/php525/bin/php
+<?php
+
+define("LIB_DIR","/import/adams/1/cs3311/public_html/19s1/assignments/a2");
+require_once(LIB_DIR."/db.php");
+
+define("DB_CONNECTION","dbname=a2");
+
+if ($argc < 2 || is_numeric($argv[1])) exit("Usage: ./acting <Title>\n");
+$title = $argv[1];
+
+$db = dbConnect("dbname=a2");
+
+$qry = <<<_SQL_
+    select  m.title, 
+            m.year, 
+            m.content_rating, 
+            r.imdb_score
+    from    Movie m, 
+            Rating r
+    where   m.title ~* %s
+    and     m.id = r.movie_id
+    order by m.year ASC, 
+            r.imdb_score DESC
+_SQL_;
+
+$qry1 = <<<_SQL_
+    select distinct g.genre
+    from    Movie m, 
+            Genre g
+    where   m.title ~* %s
+    and     m.id = g.movie_id
+    order by g.genre
+_SQL_;
+
+$res = dbQuery($db, mkSQL($qry, $title));
+
+$c = 0;                     // Count the tuples
+while ($i = dbNext($res)) {
+    
+    //if($i["year"]) {
+    //    printf("%s. %s (%s, %s, %s) [", ++$c,$i[0], $i[1], $i[2], $i[3]);
+    //} else {
+    //    printf("%s. %s (%s, %s) [", ++$c,$i[0], $i[2], $i[3]);
+    //}
+    printf("%s. %s ",++$c,$i[0]); 
+        
+    
+    
+    
+    $n = array($i[1],$i[2],$i[3]);
+    $n = array_filter($n);
+    if(count($n)!=0) {
+        echo "(";
+        $n = implode(', ', $n);
+        echo $n;  
+        echo ")";
+    }
+    
+    
+    
+    $count = 0;
+    $res1 = dbQuery($db, mkSQL($qry1, $i[0]));
+    if(dbNResults($res1) != 0) {
+        while ($j = dbNext($res1)) {
+            if($count==0) {
+                printf(" [%s", $j["genre"]);
+                $count++;
+            } else {
+                printf(",%s", $j["genre"]);
+            }
+           
+            
+        }
+        printf("]");
+    }
+    printf("\n");
+}
+?>

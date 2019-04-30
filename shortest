@@ -1,0 +1,192 @@
+#!/srvr/cs3311psql/lib/php525/bin/php
+<?php
+
+
+define("LIB_DIR","/import/adams/1/cs3311/public_html/19s1/assignments/a2");
+require_once(LIB_DIR."/db.php");
+
+define("DB_CONNECTION","dbname=a2");
+
+
+if ($argc!=3) exit("Usage: ./shortest <NAME> <NAME 1>\n");
+$name1 = $argv[1];
+$name2 = $argv[2];
+
+$db = dbConnect("dbname=a2");
+
+$q1 = "select id, name from actor where name ~* %s limit 1";
+$q2 = "select id, name from actor where name ~* %s limit 1";
+
+$r1 = dbQuery($db, mkSQL($q1, $name1));
+$r2 = dbQuery($db, mkSQL($q2, $name2));
+
+while($i = dbNext($r1)) {
+    $id1 = $i[0];
+    $n1 = $i[1];
+}
+while($i = dbNext($r2)) {
+    $id2 = $i[0];
+    $n2 = $i[1];
+}
+
+//----------------------------------------------------------------------
+
+$mq = "select movie_id from Acting where actor_id = ".$id1;
+$mr = dbQuery($db, $mq);
+
+$mq1 = "select count(actor_id) from Acting where actor_id = ".$id2;
+$mr1 = dbQuery($db, $mq);
+//$x = dbNext($mr1)[0];
+
+$q = array();
+$v = array();
+//$path = array(); // contains predecessor
+//$path[$id1]=-1; // predecessor of root is -1
+
+
+
+$n = array($id1, -1); // every $n contains current vertex(Actor and Next movie)
+$q = array();
+array_push($q, $n);
+
+$rec = "
+WITH RECURSIVE Relation(actor_id, movie_id, level) AS (
+    SELECT actor_id, movie_id, 0 from Acting a where actor_id=%s 
+    UNION (
+        WITH NB (actor_id, movie_id, level) AS 
+        (Select 
+                b.actor_id, ac.movie_id, level
+        
+        from Acting ac ,Relation b 
+        where ac.actor_id = b.actor_id
+            )
+        
+        SELECT distinct a.actor_id, 
+                        a.movie_id, 
+                        level+1 
+        from Acting a
+        inner join NB b 
+            on a.movie_id = b.movie_id 
+        where level+1 <= 6 and a.actor_id!=b.actor_id
+        
+    )
+)
+, Q (actor_id) as (
+    select distinct r.actor_id from Relation r 
+) select a.name
+        , a.id
+        , m.title
+        , m.id
+        , min(r.level) 
+over (partition by m.title
+                    --, m.id 
+                    order by 
+                        r.level
+                        , a.name
+                        , a.id)
+from Actor a, Q q, Movie m, Relation r where
+a.id = q.actor_id 
+and q.actor_id = r.actor_id 
+and r.movie_id = m.id 
+--and r.level =1 
+--group by a.name, m.title
+--order by   depth, a.name
+--limit 400;
+";
+
+$result = dbQuery($db, mkSQL($rec,$id1));
+$c=0;
+$all = array();
+$end = array();
+while($i = dbNext($result)) {
+    array_push($all, $i);
+    if($i[1]==$id2) {
+        array_push($end, $i);
+    }
+    //printf("actor: %s  ||  movie: %s  || %s  \n",$i[0], $i[2], $i[4]);
+}
+
+$res = array();
+$vis = array();
+$path = "";
+function findShortest($src, $dest, $path) {
+    global $all, $res, $path, $vis;
+    if($dest[1]==$src[1]) {
+        array_push($res, $path);
+    }
+    $dactor = $dest[1];
+    $dactor_n = $dest[0];
+    $dmovie = $dest[3];
+    $dmovie_n = $dest[2];
+    $dlevel = $dest[4];
+    
+    foreach ($all as $a) {
+        $actor = $a[1];
+        $movie = $a[3];
+        $actor_n = $a[0];
+        $movie_n = $a[2];
+        $level = $a[4];
+        
+        //printf("here %s %s\n", $level, $dlevel);
+        
+        // if the actor equals to src
+        // and the movie is equal to one of the dest movie then
+        // CASE when the dest is degree 1
+        if($actor == $src[1] && $movie == $dmovie && $level==1) {
+            
+            if(strcmp($path, "") != 0) {
+                $path = $actor_n." was in ".$movie_n." with ".$dactor_n."; ".$path;
+            } else {
+                //printf("lvl: %s\n", $level);
+                $path = $actor_n." was in ".$movie_n." with ".$dactor_n;
+            }
+            
+            if(in_array($path, $res)==false) {
+                array_push($res, $path);
+            }
+            $path = "";
+            continue;
+        }
+        // CASE when the dest is not degree 1
+        // find actor that start in destination movie and the actor has a 
+        // which is 1 less than the destination movie
+        elseif($actor != $src[1] && $movie == $dmovie && $level+1 == $dlevel) {
+            
+            //printf("lvl: %s\n", $level-1);
+            $path = $actor_n." was in ".$movie_n." with ".$dactor_n."; ".$path;
+            //echo $path."\n";
+            //if(in_array($path, $res)==false) {
+            if(in_array($path, $vis)==false) {
+                array_push($vis, $path);
+                findShortest($src, $a, $path);
+            }
+            
+            //}
+            
+            
+        }
+    }
+    // if we found nothing at a particular level
+    //return $path;
+}
+
+//printf("FINDING.....\n\n");
+$min = 7;
+foreach($end as $e) {
+    
+    $b = array($n1, $id1);
+    findShortest($b, $e, "", $e[4]);
+}
+//$e = array($n2, $id2);
+//$b = array($n1, $id1);
+//findShortest($b, $e, "");
+
+foreach($res as $x) {
+   echo $x."\n";
+}
+
+//printf("END\n");
+
+
+
+?>
